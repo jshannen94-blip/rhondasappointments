@@ -235,10 +235,8 @@ textarea{resize:vertical;}
 </x-dc>
 
 <!-- DC Component Script -->
-<script type="text/x-dc" data-dc-script>
 class Component extends DCLogic {
-
-state = {
+  state = {
     view: 'appts',
     apptMode: 'day',
     weekOffset: 0,
@@ -250,32 +248,286 @@ state = {
     editingId: null,
     formError: '',
     form: { client: '', service: '', start: 540, end: 600, products: '', notes: '', dateKey: '' }
-};
+  };
 
-KA = 'rhonda_appts_v1';
-KS = 'rhonda_shop_v1';
-WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-WDL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-MO = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-MOS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-SERVICES = ['Haircut', 'Cut & Style', 'Blow-Dry', 'Color', 'Highlights', 'Balayage', 'Root Touch-Up', 'Toner / Gloss', 'Perm', 'Updo', 'Wash & Set', 'Trim', 'Treatment', 'Extensions', 'Consultation'];
+  KA = 'rhonda_appts_v1';
+  KS = 'rhonda_shop_v1';
+  WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  WDL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  MO = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  MOS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  SERVICES = ['Haircut', 'Cut & Style', 'Blow-Dry', 'Color', 'Highlights', 'Balayage', 'Root Touch-Up', 'Toner / Gloss', 'Perm', 'Updo', 'Wash & Set', 'Trim', 'Treatment', 'Extensions', 'Consultation'];
 
-componentDidMount() {
+  componentDidMount() {
     try {
-        const a = JSON.parse(localStorage.getItem(this.KA) || '[]');
-        const s = JSON.parse(localStorage.getItem(this.KS) || '[]');
-        this.setState({ appts: Array.isArray(a) ? a : [], shopping: Array.isArray(s) ? s : [] });
+      const a = JSON.parse(localStorage.getItem(this.KA) || '[]');
+      const s = JSON.parse(localStorage.getItem(this.KS) || '[]');
+      this.setState({ appts: Array.isArray(a) ? a : [], shopping: Array.isArray(s) ? s : [] });
     } catch (e) {}
     this.applyTheme();
-}
+  }
+  componentDidUpdate(prev) { this.applyTheme(); }
 
-componentDidUpdate(prev) { this.applyTheme(); }
+  applyTheme() {
+    const map = { Peach: ['#E07856', '#C85F44'], Rose: ['#D76A92', '#BC5076'], Sage: ['#6FA382', '#557F66'], Sky: ['#5B97C9', '#3F79A8'], Lavender: ['#9B82C9', '#7C63AC'] };
+    const pair = map[this.props.accent] || map.Sky;
+    document.body.style.setProperty('--accent', pair[0]);
+    document.body.style.setProperty('--accent-strong', pair[1]);
+    const z = { Comfortable: 1, Large: 1.1, 'Extra large': 1.22 }[this.props.textSize] || 1.1;
+    document.body.style.zoom = z;
+  }
 
-/* …and paste the REST of your code here… */
+  persist(appts, shopping) {
+    try {
+      if (appts) localStorage.setItem(this.KA, JSON.stringify(appts));
+      if (shopping) localStorage.setItem(this.KS, JSON.stringify(shopping));
+    } catch (e) {}
+  }
 
+  pad(n) { return n < 10 ? '0' + n : '' + n; }
+  dateKey(d) { return d.getFullYear() + '-' + this.pad(d.getMonth() + 1) + '-' + this.pad(d.getDate()); }
+  parseKey(k) { const p = (k || '').split('-').map(Number); return new Date(p[0], (p[1] || 1) - 1, p[2] || 1); }
+
+  weekDatesFor(d) {
+    const w = new Date(d); w.setHours(0, 0, 0, 0);
+    w.setDate(w.getDate() + (3 - w.getDay()));
+    const wed = new Date(w);
+    const thu = new Date(w); thu.setDate(thu.getDate() + 1);
+    const fri = new Date(w); fri.setDate(fri.getDate() + 2);
+    return [wed, thu, fri];
+  }
+  currentWeekDates() {
+    const t = new Date(); t.setHours(0, 0, 0, 0); t.setDate(t.getDate() + this.state.weekOffset * 7);
+    return this.weekDatesFor(t);
+  }
+  selectedDate() { return this.currentWeekDates()[this.state.dayIndex]; }
+
+  fmt(min) {
+    let h = Math.floor(min / 60), m = min % 60;
+    const p = h >= 12 ? 'PM' : 'AM';
+    const hh = h % 12 || 12;
+    return hh + ':' + this.pad(m) + ' ' + p;
+  }
+  fmtHour(h) { const p = h >= 12 ? 'PM' : 'AM'; return (h % 12 || 12) + ' ' + p; }
+
+  setForm(field, val) { this.setState(s => ({ form: { ...s.form, [field]: val }, formError: '' })); }
+
+  prevWeek = () => this.setState(s => ({ weekOffset: s.weekOffset - 1 }));
+  nextWeek = () => this.setState(s => ({ weekOffset: s.weekOffset + 1 }));
+
+  openAdd(startMin, dateKey) {
+    const start = startMin == null ? 540 : startMin;
+    const end = Math.min(start + 60, 1140);
+    this.setState({ modalOpen: true, editingId: null, formError: '', form: { client: '', service: '', start, end, products: '', notes: '', dateKey: dateKey || this.dateKey(this.selectedDate()) } });
+  }
+  addQuick = () => {
+    const key = this.dateKey(this.selectedDate());
+    const taken = new Set(this.state.appts.filter(a => a.date === key).map(a => Math.floor(a.start / 60)));
+    let h = 9; while (h < 19 && taken.has(h)) h++;
+    if (h >= 19) h = 9;
+    this.openAdd(h * 60);
+  };
+  openEdit(appt) {
+    this.setState({ modalOpen: true, editingId: appt.id, formError: '', form: { client: appt.client || '', service: appt.service || '', start: appt.start, end: appt.end, products: appt.products || '', notes: appt.notes || '', dateKey: appt.date } });
+  }
+  closeModal = () => this.setState({ modalOpen: false });
+
+  saveAppt = () => {
+    const f = this.state.form;
+    if (!f.client.trim()) { this.setState({ formError: "Please enter the client's name." }); return; }
+    if (f.end <= f.start) { this.setState({ formError: 'End time must be after the start time.' }); return; }
+    let appts = this.state.appts.slice();
+    if (this.state.editingId) {
+      appts = appts.map(a => a.id === this.state.editingId ? { ...a, client: f.client.trim(), service: f.service.trim(), start: f.start, end: f.end, products: f.products.trim(), notes: f.notes.trim(), date: f.dateKey } : a);
+    } else {
+      appts.push({ id: 'a' + Date.now() + Math.floor(Math.random() * 1000), date: f.dateKey, client: f.client.trim(), service: f.service.trim(), start: f.start, end: f.end, products: f.products.trim(), notes: f.notes.trim() });
+    }
+    this.setState({ appts, modalOpen: false });
+    this.persist(appts, null);
+  };
+  deleteAppt = () => {
+    const appts = this.state.appts.filter(a => a.id !== this.state.editingId);
+    this.setState({ appts, modalOpen: false });
+    this.persist(appts, null);
+  };
+
+  onShopInput = (e) => this.setState({ shopInput: e.target.value });
+  onShopKey = (e) => { if (e.key === 'Enter') this.addShop(); };
+  addShop = () => {
+    const t = this.state.shopInput.trim();
+    if (!t) return;
+    const shopping = this.state.shopping.concat({ id: 's' + Date.now(), text: t, done: false });
+    this.setState({ shopping, shopInput: '' });
+    this.persist(null, shopping);
+  };
+  toggleShop(id) {
+    const shopping = this.state.shopping.map(it => it.id === id ? { ...it, done: !it.done } : it);
+    this.setState({ shopping });
+    this.persist(null, shopping);
+  }
+  removeShop(id) {
+    const shopping = this.state.shopping.filter(it => it.id !== id);
+    this.setState({ shopping });
+    this.persist(null, shopping);
+  }
+
+  timeSlots() { const a = []; for (let m = 540; m <= 1140; m += 15) a.push(m); return a; }
+
+  renderVals() {
+    const s = this.state;
+    const week = this.currentWeekDates();
+    const wed = week[0], fri = week[2];
+    let weekLabel;
+    if (wed.getMonth() === fri.getMonth()) weekLabel = this.MOS[wed.getMonth()] + ' ' + wed.getDate() + '–' + fri.getDate();
+    else weekLabel = this.MOS[wed.getMonth()] + ' ' + wed.getDate() + ' – ' + this.MOS[fri.getMonth()] + ' ' + fri.getDate();
+
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const todayKey = this.dateKey(today);
+
+    const tabBase = 'flex:1;cursor:pointer;border-radius:18px;padding:12px 4px;display:flex;flex-direction:column;align-items:center;transition:all .12s;';
+    const dayTabs = week.map((d, i) => {
+      const active = i === s.dayIndex;
+      const isToday = this.dateKey(d) === todayKey;
+      let style;
+      if (active) style = tabBase + 'background:var(--accent);color:#fff;border:2px solid var(--accent);box-shadow:0 5px 14px rgba(55,90,125,0.28);';
+      else if (isToday) style = tabBase + 'background:#fff;color:var(--accent-strong);border:2px solid var(--accent);';
+      else style = tabBase + 'background:#fff;color:#5E6E7B;border:2px solid #DCE3EB;';
+      return { name: this.WD[d.getDay()].toUpperCase(), num: d.getDate(), style, select: () => this.setState({ dayIndex: i }) };
+    });
+
+    const selDate = week[s.dayIndex];
+    const selKey = this.dateKey(selDate);
+    const dayHeading = this.WDL[selDate.getDay()] + ', ' + this.MO[selDate.getMonth()] + ' ' + selDate.getDate();
+
+    const dayAppts = s.appts.filter(a => a.date === selKey).sort((a, b) => a.start - b.start);
+    const hourRows = [];
+    for (let h = 9; h <= 18; h++) {
+      const inHour = dayAppts.filter(a => Math.floor(a.start / 60) === h);
+      hourRows.push({
+        label: this.fmtHour(h),
+        empty: inHour.length === 0,
+        add: () => this.openAdd(h * 60),
+        appts: inHour.map(a => ({
+          timeLabel: this.fmt(a.start) + ' – ' + this.fmt(a.end),
+          client: a.client,
+          service: a.service,
+          hasService: !!(a.service && a.service.trim()),
+          products: a.products,
+          hasProducts: !!(a.products && a.products.trim()),
+          notes: a.notes,
+          hasNotes: !!(a.notes && a.notes.trim()),
+          edit: () => this.openEdit(a)
+        }))
+      });
+    }
+
+    const segBase = 'flex:1;cursor:pointer;border-radius:13px;padding:12px 4px;font-size:17px;font-weight:800;transition:all .12s;border:2px solid #DCE3EB;';
+    const dayModeStyle = segBase + (s.apptMode === 'day' ? 'background:var(--accent);color:#fff;border-color:var(--accent);' : 'background:#fff;color:#5E6E7B;');
+    const weekModeStyle = segBase + (s.apptMode === 'week' ? 'background:var(--accent);color:#fff;border-color:var(--accent);' : 'background:#fff;color:#5E6E7B;');
+
+    const weekSections = week.map(d => {
+      const k = this.dateKey(d);
+      const past = d < today;
+      const isToday = k === todayKey;
+      const list = s.appts.filter(a => a.date === k).sort((a, b) => a.start - b.start).map(a => ({
+        timeLabel: this.fmt(a.start) + ' – ' + this.fmt(a.end),
+        client: a.client,
+        service: a.service,
+        hasService: !!(a.service && a.service.trim()),
+        products: a.products,
+        hasProducts: !!(a.products && a.products.trim()),
+        edit: () => this.openEdit(a)
+      }));
+      return {
+        heading: this.WDL[d.getDay()] + ' ' + d.getDate() + (isToday ? ' · Today' : ''),
+        style: 'margin-bottom:22px;' + (past ? 'opacity:0.45;' : ''),
+        empty: list.length === 0,
+        add: () => this.openAdd(540, k),
+        appts: list
+      };
+    });
+
+    const navBase = 'flex:1;cursor:pointer;background:transparent;border:none;padding:16px 8px 22px;font-size:18px;line-height:1;';
+    const navApptStyle = navBase + (s.view === 'appts' ? 'color:var(--accent-strong);font-weight:900;' : 'color:#889AA8;font-weight:700;');
+    const navShopStyle = navBase + (s.view === 'shopping' ? 'color:var(--accent-strong);font-weight:900;' : 'color:#889AA8;font-weight:700;');
+
+    // modal day selector
+    const baseKey = s.form.dateKey || selKey;
+    const mWeek = this.weekDatesFor(this.parseKey(baseKey));
+    const mDayBase = 'flex:1;cursor:pointer;border-radius:14px;padding:13px 4px;font-size:17px;font-weight:800;';
+    const modalDays = mWeek.map(d => {
+      const k = this.dateKey(d);
+      const active = k === s.form.dateKey;
+      return {
+        label: this.WD[d.getDay()] + ' ' + d.getDate(),
+        style: mDayBase + (active ? 'background:var(--accent);color:#fff;border:2px solid var(--accent);' : 'background:#fff;color:#5E6E7B;border:2px solid #DCE3EB;'),
+        select: () => this.setForm('dateKey', k)
+      };
+    });
+
+    const chipBase = 'cursor:pointer;border-radius:22px;padding:10px 16px;font-size:16px;font-weight:700;';
+    const serviceChips = this.SERVICES.map(name => {
+      const active = (s.form.service || '').trim().toLowerCase() === name.toLowerCase();
+      return {
+        name,
+        style: chipBase + (active ? 'background:var(--accent);color:#fff;border:1.5px solid var(--accent);' : 'background:#fff;color:#4E5C68;border:1.5px solid #D6DEE7;'),
+        pick: () => this.setForm('service', name)
+      };
+    });
+
+    const slots = this.timeSlots();
+    const startOptions = slots.filter(m => m < 1140).map(m => ({ v: String(m), label: this.fmt(m) }));
+    const endOptions = slots.filter(m => m > 540).map(m => ({ v: String(m), label: this.fmt(m) }));
+
+    const shopBoxBase = 'flex:none;width:34px;height:34px;border-radius:9px;cursor:pointer;font-size:20px;font-weight:900;line-height:1;display:flex;align-items:center;justify-content:center;';
+    const shopItems = s.shopping.map(it => ({
+      text: it.text,
+      check: it.done ? '✓' : '',
+      boxStyle: shopBoxBase + (it.done ? 'background:var(--accent);color:#fff;border:2px solid var(--accent);' : 'background:#fff;color:transparent;border:2px solid #C2CCD6;'),
+      textStyle: 'flex:1;min-width:0;font-size:19px;font-weight:700;' + (it.done ? 'color:#98A5B0;text-decoration:line-through;' : 'color:#2B333C;'),
+      toggle: () => this.toggleShop(it.id),
+      remove: () => this.removeShop(it.id)
+    }));
+
+    return {
+      isApptView: s.view === 'appts',
+      isShopView: s.view === 'shopping',
+      weekLabel, dayTabs, dayHeading, hourRows, weekSections,
+      isDayMode: s.apptMode === 'day', isWeekMode: s.apptMode === 'week',
+      dayModeStyle, weekModeStyle,
+      setDayMode: () => this.setState({ apptMode: 'day' }),
+      setWeekMode: () => this.setState({ apptMode: 'week' }),
+      prevWeek: this.prevWeek, nextWeek: this.nextWeek,
+      addQuick: this.addQuick,
+      navApptStyle, navShopStyle,
+      showAppts: () => this.setState({ view: 'appts' }),
+      showShop: () => this.setState({ view: 'shopping' }),
+      modalOpen: s.modalOpen,
+      modalTitle: s.editingId ? 'Edit appointment' : 'New appointment',
+      saveLabel: s.editingId ? 'Save changes' : 'Save appointment',
+      isEditing: !!s.editingId,
+      modalDays,
+      formClient: s.form.client,
+      onClient: (e) => this.setForm('client', e.target.value),
+      formService: s.form.service,
+      onService: (e) => this.setForm('service', e.target.value),
+      serviceChips,
+      formStartStr: String(s.form.start),
+      formEndStr: String(s.form.end),
+      onStart: (e) => this.setForm('start', parseInt(e.target.value, 10)),
+      onEnd: (e) => this.setForm('end', parseInt(e.target.value, 10)),
+      startOptions, endOptions,
+      formProducts: s.form.products,
+      onProducts: (e) => this.setForm('products', e.target.value),
+      formNotes: s.form.notes,
+      onNotes: (e) => this.setForm('notes', e.target.value),
+      formError: s.formError, hasError: !!s.formError,
+      saveAppt: this.saveAppt, deleteAppt: this.deleteAppt, closeModal: this.closeModal,
+      shopInput: s.shopInput, onShopInput: this.onShopInput, onShopKey: this.onShopKey, addShop: this.addShop,
+      shopItems, shopEmpty: s.shopping.length === 0
+    };
+  }
 }
 </script>
-
-
 </body>
 </html>
